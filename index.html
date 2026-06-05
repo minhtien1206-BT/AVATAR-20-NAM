@@ -13,23 +13,28 @@
       padding: 20px;
     }
 
-    h2 {
-      color: #0b3b75;
-    }
-
     .box {
-      max-width: 420px;
+      max-width: 430px;
       margin: auto;
       background: white;
       padding: 20px;
       border-radius: 18px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+      box-shadow: 0 4px 18px rgba(0,0,0,0.15);
+    }
+
+    h2 {
+      color: #0b3b75;
+      margin-bottom: 5px;
+    }
+
+    p {
+      color: #555;
     }
 
     canvas {
       width: 100%;
       max-width: 360px;
-      border-radius: 12px;
+      border-radius: 14px;
       background: #ddd;
       margin-top: 15px;
     }
@@ -41,10 +46,24 @@
       font-size: 16px;
       border-radius: 10px;
       border: none;
+      box-sizing: border-box;
     }
 
-    input {
+    input[type="file"] {
       background: #eef1f5;
+    }
+
+    input[type="range"] {
+      padding: 0;
+      cursor: pointer;
+    }
+
+    label {
+      display: block;
+      margin-top: 15px;
+      font-weight: bold;
+      color: #0b3b75;
+      text-align: left;
     }
 
     button {
@@ -57,6 +76,12 @@
     button:hover {
       background: #092f5e;
     }
+
+    .note {
+      font-size: 14px;
+      color: #777;
+      margin-top: 8px;
+    }
   </style>
 </head>
 
@@ -64,47 +89,74 @@
 
   <div class="box">
     <h2>Tạo Avatar</h2>
-    <p>Chọn ảnh cá nhân, căn chỉnh rồi tải về.</p>
+    <p>Chọn ảnh cá nhân, phóng to cho vừa khung rồi tải về.</p>
 
     <input type="file" id="upload" accept="image/*">
+
+    <label for="zoom">Phóng to ảnh</label>
+    <input type="range" id="zoom" min="1" max="3" step="0.05" value="1">
 
     <canvas id="canvas" width="1080" height="1080"></canvas>
 
     <button onclick="downloadAvatar()">Tải avatar về máy</button>
+
+    <div class="note">Ảnh xuất ra kích thước 1080×1080 px</div>
   </div>
 
   <script>
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+    const upload = document.getElementById("upload");
+    const zoomInput = document.getElementById("zoom");
 
     const frame = new Image();
     frame.src = "frame.png";
 
     let userImage = null;
+    let zoom = 1;
 
     frame.onload = drawCanvas;
 
-    document.getElementById("upload").addEventListener("change", function(e) {
+    upload.addEventListener("change", function(e) {
       const file = e.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
+
       reader.onload = function(event) {
         userImage = new Image();
-        userImage.onload = drawCanvas;
+
+        userImage.onload = function() {
+          zoom = 1;
+          zoomInput.value = 1;
+          drawCanvas();
+        };
+
         userImage.src = event.target.result;
       };
+
       reader.readAsDataURL(file);
+    });
+
+    zoomInput.addEventListener("input", function() {
+      zoom = parseFloat(this.value);
+      drawCanvas();
     });
 
     function drawCanvas() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (userImage) {
-        const size = Math.max(canvas.width, canvas.height);
-        const ratio = Math.max(canvas.width / userImage.width, canvas.height / userImage.height);
+        const baseRatio = Math.max(
+          canvas.width / userImage.width,
+          canvas.height / userImage.height
+        );
+
+        const ratio = baseRatio * zoom;
+
         const newWidth = userImage.width * ratio;
         const newHeight = userImage.height * ratio;
+
         const x = (canvas.width - newWidth) / 2;
         const y = (canvas.height - newHeight) / 2;
 
