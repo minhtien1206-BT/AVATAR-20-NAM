@@ -29,6 +29,7 @@
 
     p {
       color: #555;
+      font-size: 15px;
     }
 
     canvas {
@@ -37,6 +38,12 @@
       border-radius: 14px;
       background: #ddd;
       margin-top: 15px;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    canvas:active {
+      cursor: grabbing;
     }
 
     input, button {
@@ -51,19 +58,6 @@
 
     input[type="file"] {
       background: #eef1f5;
-    }
-
-    input[type="range"] {
-      padding: 0;
-      cursor: pointer;
-    }
-
-    label {
-      display: block;
-      margin-top: 15px;
-      font-weight: bold;
-      color: #0b3b75;
-      text-align: left;
     }
 
     button {
@@ -81,6 +75,7 @@
       font-size: 14px;
       color: #777;
       margin-top: 8px;
+      line-height: 1.5;
     }
   </style>
 </head>
@@ -89,31 +84,40 @@
 
   <div class="box">
     <h2>Tạo Avatar</h2>
-    <p>Chọn ảnh cá nhân, phóng to cho vừa khung rồi tải về.</p>
+    <p>Chọn ảnh cá nhân, 1 ngón tay để di chuyển, 2 ngón tay để phóng to hoặc thu nhỏ.</p>
 
     <input type="file" id="upload" accept="image/*">
-
-    <label for="zoom">Phóng to ảnh</label>
-    <input type="range" id="zoom" min="1" max="3" step="0.05" value="1">
 
     <canvas id="canvas" width="1080" height="1080"></canvas>
 
     <button onclick="downloadAvatar()">Tải avatar về máy</button>
 
-    <div class="note">Ảnh xuất ra kích thước 1080×1080 px</div>
+    <div class="note">
+      Ảnh xuất ra PNG 1080×1080 px<br>
+      Không quảng cáo, không watermark
+    </div>
   </div>
 
   <script>
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const upload = document.getElementById("upload");
-    const zoomInput = document.getElementById("zoom");
 
     const frame = new Image();
     frame.src = "frame.png";
 
     let userImage = null;
     let zoom = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    let isDragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    let isPinching = false;
+    let lastPinchDistance = 0;
+    let lastPinchCenter = null;
 
     frame.onload = drawCanvas;
 
@@ -128,7 +132,8 @@
 
         userImage.onload = function() {
           zoom = 1;
-          zoomInput.value = 1;
+          offsetX = 0;
+          offsetY = 0;
           drawCanvas();
         };
 
@@ -136,11 +141,6 @@
       };
 
       reader.readAsDataURL(file);
-    });
-
-    zoomInput.addEventListener("input", function() {
-      zoom = parseFloat(this.value);
-      drawCanvas();
     });
 
     function drawCanvas() {
@@ -153,12 +153,11 @@
         );
 
         const ratio = baseRatio * zoom;
-
         const newWidth = userImage.width * ratio;
         const newHeight = userImage.height * ratio;
 
-        const x = (canvas.width - newWidth) / 2;
-        const y = (canvas.height - newHeight) / 2;
+        const x = (canvas.width - newWidth) / 2 + offsetX;
+        const y = (canvas.height - newHeight) / 2 + offsetY;
 
         ctx.drawImage(userImage, x, y, newWidth, newHeight);
       } else {
@@ -168,6 +167,151 @@
 
       ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
     }
+
+    function getCanvasPosition(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+
+      return {
+        x: (clientX - rect.left) * (canvas.width / rect.width),
+        y: (clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      const x = (touches[0].clientX + touches[1].clientX) / 2;
+      const y = (touches[0].clientY + touches[1].clientY) / 2;
+      return getCanvasPosition(x, y);
+    }
+
+    function startMouseDrag(e) {
+      if (!userImage) return;
+
+      isDragging = true;
+
+      const pos = getCanvasPosition(e.clientX, e.clientY);
+      lastX = pos.x;
+      lastY = pos.y;
+    }
+
+    function moveMouseDrag(e) {
+      if (!isDragging || !userImage) return;
+
+      const pos = getCanvasPosition(e.clientX, e.clientY);
+
+      offsetX += pos.x - lastX;
+      offsetY += pos.y - lastY;
+
+      lastX = pos.x;
+      lastY = pos.y;
+
+      drawCanvas();
+    }
+
+    function endMouseDrag() {
+      isDragging = false;
+    }
+
+    canvas.addEventListener("mousedown", startMouseDrag);
+    canvas.addEventListener("mousemove", moveMouseDrag);
+    canvas.addEventListener("mouseup", endMouseDrag);
+    canvas.addEventListener("mouseleave", endMouseDrag);
+
+    canvas.addEventListener("touchstart", function(e) {
+      if (!userImage) return;
+      e.preventDefault();
+
+      if (e.touches.length === 1) {
+        isDragging = true;
+        isPinching = false;
+
+        const pos = getCanvasPosition(
+          e.touches[0].clientX,
+          e.touches[0].clientY
+        );
+
+        lastX = pos.x;
+        lastY = pos.y;
+      }
+
+      if (e.touches.length === 2) {
+        isDragging = false;
+        isPinching = true;
+        lastPinchDistance = getTouchDistance(e.touches);
+        lastPinchCenter = getTouchCenter(e.touches);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("touchmove", function(e) {
+      if (!userImage) return;
+      e.preventDefault();
+
+      if (e.touches.length === 1 && isDragging) {
+        const pos = getCanvasPosition(
+          e.touches[0].clientX,
+          e.touches[0].clientY
+        );
+
+        offsetX += pos.x - lastX;
+        offsetY += pos.y - lastY;
+
+        lastX = pos.x;
+        lastY = pos.y;
+
+        drawCanvas();
+      }
+
+      if (e.touches.length === 2 && isPinching) {
+        const newDistance = getTouchDistance(e.touches);
+        const newCenter = getTouchCenter(e.touches);
+
+        if (lastPinchDistance > 0) {
+          const scaleChange = newDistance / lastPinchDistance;
+          const oldZoom = zoom;
+
+          zoom = zoom * scaleChange;
+          zoom = Math.max(1, Math.min(5, zoom));
+
+          const realScale = zoom / oldZoom;
+
+          offsetX = newCenter.x - (newCenter.x - offsetX) * realScale;
+          offsetY = newCenter.y - (newCenter.y - offsetY) * realScale;
+
+          offsetX += newCenter.x - lastPinchCenter.x;
+          offsetY += newCenter.y - lastPinchCenter.y;
+
+          drawCanvas();
+        }
+
+        lastPinchDistance = newDistance;
+        lastPinchCenter = newCenter;
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", function(e) {
+      if (e.touches.length === 0) {
+        isDragging = false;
+        isPinching = false;
+      }
+
+      if (e.touches.length === 1) {
+        isPinching = false;
+        isDragging = true;
+
+        const pos = getCanvasPosition(
+          e.touches[0].clientX,
+          e.touches[0].clientY
+        );
+
+        lastX = pos.x;
+        lastY = pos.y;
+      }
+    });
 
     function downloadAvatar() {
       const link = document.createElement("a");
